@@ -1,25 +1,9 @@
-/*
- * ServerAuthMod - Minecraft Forge Server Authentication Mod
- * Copyright (C) 2024
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- * 
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
 package com.serverauth.config;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
+import com.serverauth.crypto.CryptoUtil;
 import net.minecraftforge.fml.loading.FMLPaths;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,6 +25,8 @@ public class AuthConfig {
     private static final Path PLAYER_ID_MAP_FILE = CONFIG_DIR.resolve("player_id_map.json");
     // Device fingerprint records: playerUUID -> DeviceRecord
     private static final Path DEVICE_FINGERPRINT_FILE = CONFIG_DIR.resolve("device_fingerprints.json");
+    // Admin password file
+    private static final Path ADMIN_PASSWORD_FILE = CONFIG_DIR.resolve("admin_password.dat");
 
     // Whitelist: allowed player IDs
     private static final List<Integer> WHITELIST = new CopyOnWriteArrayList<>();
@@ -50,6 +36,10 @@ public class AuthConfig {
     private static final Map<String, Integer> PLAYER_ID_MAP = new HashMap<>();
     // Device fingerprint storage: playerUUID -> DeviceRecord
     private static final Map<String, DeviceRecord> DEVICE_RECORDS = new HashMap<>();
+    // Admin password (16 chars random, loaded from encrypted file)
+    private static String adminPassword = null;
+    // Track if password was freshly generated (shown in console)
+    private static boolean isNewPassword = false;
 
     public static void load() {
         try {
@@ -58,6 +48,7 @@ public class AuthConfig {
             loadListFromFile(BLACKLIST_FILE, BLACKLIST);
             loadMapFromFile(PLAYER_ID_MAP_FILE, PLAYER_ID_MAP);
             loadDeviceRecords();
+            loadAdminPassword();
             LOGGER.info("Config loaded! Whitelist: {}, Blacklist: {}, Registered: {}, Devices: {}",
                     WHITELIST.size(), BLACKLIST.size(), PLAYER_ID_MAP.size(), DEVICE_RECORDS.size());
         } catch (Exception e) {
@@ -192,6 +183,90 @@ public class AuthConfig {
 
         public boolean isAllowed() { return allowed; }
         public String getReason() { return reason; }
+    }
+
+    // ========== Admin Password Management ==========
+
+    private static final String PASSWORD_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+
+    /**
+     * Generate a random 16-character admin password
+     */
+    private static String generatePassword() {
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        StringBuilder sb = new StringBuilder(16);
+        for (int i = 0; i < 16; i++) {
+            sb.append(PASSWORD_CHARS.charAt(random.nextInt(PASSWORD_CHARS.length())));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Load existing admin password or generate a new one
+     */
+    private static void loadAdminPassword() {
+        try {
+            Files.createDirectories(CONFIG_DIR);
+            if (Files.exists(ADMIN_PASSWORD_FILE)) {
+                String encrypted = new String(Files.readAllBytes(ADMIN_PASSWORD_FILE), StandardCharsets.UTF_8);
+                adminPassword = CryptoUtil.decrypt(encrypted);
+                isNewPassword = false;
+                LOGGER.info("Admin password loaded from config file");
+            } else {
+                // Generate new password
+                adminPassword = generatePassword();
+                String encrypted = CryptoUtil.encrypt(adminPassword);
+                Files.write(ADMIN_PASSWORD_FILE, encrypted.getBytes(StandardCharsets.UTF_8));
+                isNewPassword = true;
+                LOGGER.info("==============================================");
+                LOGGER.info("  NEW ADMIN PASSWORD GENERATED!");
+                LOGGER.info("  Password: {}", adminPassword);
+                LOGGER.info("  Use /serverauth login <password> to gain OP");
+                LOGGER.info("  File: {}", ADMIN_PASSWORD_FILE);
+                LOGGER.info("==============================================");
+            }
+        } catch (Exception e) {
+            LOGGER.error("Failed to load admin password", e);
+            adminPassword = generatePassword();
+        }
+    }
+
+    /**
+     * Verify admin password
+     * @return true if password matches
+     */
+    public static boolean verifyAdminPassword(String input) {
+        if (adminPassword == null) return false;
+        // Constant-time comparison to prevent timing attacks
+        if (input.length() != adminPassword.length()) return false;
+        int result = 0;
+        for (int i = 0; i < input.length(); i++) {
+            result |= input.charAt(i) ^ adminPassword.charAt(i);
+        }
+        return result == 0;
+    }
+
+    /**
+     * Regenerate admin password
+     */
+    public static String regenerateAdminPassword() {
+        try {
+            adminPassword = generatePassword();
+            String encrypted = CryptoUtil.encrypt(adminPassword);
+            Files.write(ADMIN_PASSWORD_FILE, encrypted.getBytes(StandardCharsets.UTF_8));
+            LOGGER.info("Admin password regenerated! New password: {}", adminPassword);
+            return adminPassword;
+        } catch (Exception e) {
+            LOGGER.error("Failed to regenerate admin password", e);
+            return null;
+        }
+    }
+
+    /**
+     * Check if this is a newly generated password (shown on first startup)
+     */
+    public static boolean isNewPassword() {
+        return isNewPassword;
     }
 
     // ========== Device Fingerprint Management ==========

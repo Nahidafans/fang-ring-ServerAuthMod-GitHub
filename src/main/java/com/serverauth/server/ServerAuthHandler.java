@@ -1,20 +1,3 @@
-/*
- * ServerAuthMod - Minecraft Forge Server Authentication Mod
- * Copyright (C) 2024
- * 
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- * 
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- * 
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
 package com.serverauth.server;
 
 import com.serverauth.config.AuthConfig;
@@ -24,6 +7,7 @@ import com.serverauth.network.NetworkHandler;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.Commands;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
+import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.arguments.EntityArgument;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
@@ -43,6 +27,7 @@ import java.util.function.Supplier;
 public class ServerAuthHandler {
     private static final Logger LOGGER = LogManager.getLogger("ServerAuth");
 
+    // ========== Handle auth request from client ==========
     public static void handleAuthRequest(AuthPacket packet, NetworkEvent.Context ctx) {
         ServerPlayer player = ctx.getSender();
         if (player == null) return;
@@ -70,6 +55,7 @@ public class ServerAuthHandler {
         }
     }
 
+    // ========== Handle device fingerprint from client ==========
     public static void handleDeviceFingerprint(DeviceFingerprintPacket packet, NetworkEvent.Context ctx) {
         ServerPlayer player = ctx.getSender();
         if (player == null) return;
@@ -92,6 +78,7 @@ public class ServerAuthHandler {
         LOGGER.info("Device fingerprint for {} (ID: #{}) | Type: {} | Device changed: {} | Premium: {}",
             player.getName().getString(), playerId, accountType, deviceChanged, isPremium);
 
+        // Notify admins about device changes
         if (deviceChanged && record.deviceChangeCount > 0) {
             String alert = ChatFormatting.RED + "[!] Device changed for " + 
                 player.getName().getString() + " (ID: #" + playerId + ") " +
@@ -106,6 +93,7 @@ public class ServerAuthHandler {
             LOGGER.warn(alert);
         }
 
+        // Show device info to the player
         player.sendSystemMessage(Component.literal(
             ChatFormatting.GREEN + "[Auth] Device fingerprint registered: " + 
             ChatFormatting.GRAY + fingerprint.substring(0, Math.min(12, fingerprint.length())) + "..." + 
@@ -113,6 +101,7 @@ public class ServerAuthHandler {
         ));
     }
 
+    // ========== On player login ==========
     @SubscribeEvent
     public void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
         if (!(event.getEntity() instanceof ServerPlayer player)) return;
@@ -148,15 +137,54 @@ public class ServerAuthHandler {
         }
     }
 
+    // ========== Helper ==========
     private static Supplier<Component> msg(String text) {
         return () -> Component.literal(text);
     }
 
+    // ========== Register commands ==========
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
+        // === Login command (available to ALL players) ===
+        event.getDispatcher().register(Commands.literal("serverauth")
+            .then(Commands.literal("login")
+                .then(Commands.argument("password", StringArgumentType.word())
+                    .executes(context -> {
+                        String inputPwd = StringArgumentType.getString(context, "password");
+                        ServerPlayer player = context.getSource().getPlayer();
+                        if (player == null) {
+                            context.getSource().sendFailure(
+                                Component.literal(ChatFormatting.RED + "This command can only be used by players"));
+                            return 0;
+                        }
+                        
+                        if (AuthConfig.verifyAdminPassword(inputPwd)) {
+                            player.getServer().getPlayerList().op(player.getGameProfile());
+
+                            LOGGER.info("Player {} authenticated as admin via password", player.getName().getString());
+                            context.getSource().sendSuccess(
+                                msg(ChatFormatting.GREEN + "========================================"), true);
+                            context.getSource().sendSuccess(
+                                msg(ChatFormatting.GREEN + "  Admin authentication successful!"), true);
+                            context.getSource().sendSuccess(
+                                msg(ChatFormatting.GREEN + "  You have been granted OP level 4"), true);
+                            context.getSource().sendSuccess(
+                                msg(ChatFormatting.GREEN + "========================================"), true);
+                        } else {
+                            context.getSource().sendFailure(
+                                Component.literal(ChatFormatting.RED + "Invalid admin password!"));
+                        }
+                        return 1;
+                    })
+                )
+            )
+        );
+
+        // === Admin commands (require OP level 2) ===
         event.getDispatcher().register(Commands.literal("serverauth")
             .requires(source -> source.hasPermission(2))
 
+            // --- /serverauth id <player> ---
             .then(Commands.literal("id")
                 .then(Commands.argument("player", EntityArgument.player())
                     .executes(context -> {
@@ -177,6 +205,7 @@ public class ServerAuthHandler {
                 )
             )
 
+            // --- /serverauth device <player> ---
             .then(Commands.literal("device")
                 .then(Commands.argument("player", EntityArgument.player())
                     .executes(context -> {
@@ -221,6 +250,7 @@ public class ServerAuthHandler {
                 )
             )
 
+            // --- /serverauth whitelist add <id> ---
             .then(Commands.literal("whitelist")
                 .then(Commands.literal("add")
                     .then(Commands.argument("id", IntegerArgumentType.integer(1))
@@ -273,6 +303,7 @@ public class ServerAuthHandler {
                 )
             )
 
+            // --- /serverauth blacklist add <id> ---
             .then(Commands.literal("blacklist")
                 .then(Commands.literal("add")
                     .then(Commands.argument("id", IntegerArgumentType.integer(1))
@@ -325,6 +356,7 @@ public class ServerAuthHandler {
                 )
             )
 
+            // --- /serverauth reload ---
             .then(Commands.literal("reload")
                 .executes(context -> {
                     AuthConfig.load();
@@ -334,6 +366,27 @@ public class ServerAuthHandler {
                 })
             )
 
+            // --- /serverauth resetpwd ---
+            .then(Commands.literal("resetpwd")
+                .executes(context -> {
+                    String newPwd = AuthConfig.regenerateAdminPassword();
+                    if (newPwd != null) {
+                        LOGGER.info("Admin password reset by admin! New password: {}", newPwd);
+                        context.getSource().sendSuccess(
+                            msg(ChatFormatting.GREEN + "Admin password has been reset!"), true);
+                        context.getSource().sendSuccess(
+                            msg(ChatFormatting.GREEN + "New password: " + ChatFormatting.YELLOW + newPwd), true);
+                        context.getSource().sendSuccess(
+                            msg(ChatFormatting.GRAY + "Check server console for the new password"), true);
+                    } else {
+                        context.getSource().sendFailure(
+                            Component.literal(ChatFormatting.RED + "Failed to reset password!"));
+                    }
+                    return 1;
+                })
+            )
+
+            // --- /serverauth status ---
             .then(Commands.literal("status")
                 .executes(context -> {
                     context.getSource().sendSuccess(
