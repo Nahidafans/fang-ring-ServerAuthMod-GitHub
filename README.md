@@ -1,8 +1,10 @@
+<<<<<<< HEAD
 # 🔐 ServerAuthMod
 
 **Minecraft Forge 1.20.1 服务器身份验证模组**
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![Terms of Service](https://img.shields.io/badge/Terms-Service-orange)](TERMS_OF_SERVICE.md)
 
 ---
 
@@ -114,7 +116,8 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 ```
 
-详见 [LICENSE](LICENSE) 文件。
+详见 [LICENSE](LICENSE) 文件。  
+使用本模组即表示您同意 **[用户条款 (Terms of Service)](TERMS_OF_SERVICE.md)**，包括设备指纹数据收集条款。
 
 ---
 
@@ -158,3 +161,6 @@ GNU General Public License for more details.
          ↓
         区分正版/离线账号
 ```
+=======
+# fang-ring-ServerAuthMod-GitHub
+>>>>>>> ca18cfa4bae1d9bfdf2890bc10ae81a7f489a7f2
