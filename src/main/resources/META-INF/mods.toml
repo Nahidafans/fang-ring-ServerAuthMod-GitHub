@@ -1,0 +1,33 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+issueTrackerURL=""
+
+[[mods]]
+modId="serverauth"
+version="1.0.0"
+displayName="服务器验证模组"
+logoFile=""
+credits=""
+authors=""
+description='''
+服务器白名单/黑名单验证模组
+- 每位玩家有唯一数字标识ID
+- 服务器端白名单管理
+- 黑名单ID自动拒绝连接
+- 支持 /whitelist 和 /blacklist 管理命令
+'''
+
+[[dependencies.serverauth]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.serverauth]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.21)"
+    ordering="NONE"
+    side="BOTH"
